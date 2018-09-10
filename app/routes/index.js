@@ -7,7 +7,7 @@ module.exports = (app) => {
 
     app.route('/todos')
         .get(todoController.listAll)
-        .post(todoController.putTodo);
+        .post(todoController.addItem);
 
     app.route('/todos/:todoId')
         .get(todoController.getItem)

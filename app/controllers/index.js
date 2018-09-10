@@ -2,7 +2,7 @@ const dynamodb = require('../dynamodb');
 const uuid = require('uuid');
 const moment = require('moment');
 
-exports.putTodo = (request, response) => {
+exports.addItem = (request, response) => {
     const timestamp = new Date().getTime();
 
     const data = request.body;
@@ -18,7 +18,7 @@ exports.putTodo = (request, response) => {
         Item: {
             id,
             title: data.title,
-            description: 'Some data',
+            description: data.description,
             isDue,
             dueDate: data.dueDate || null,
             createdAt: timestamp,
@@ -93,11 +93,19 @@ exports.getItem = (request, response) => {
         } else {
             const { Items } = result;
 
-            response.send({
-                success: true,
-                message: `Successfully retreived todo.`,
-                Items
-            });
+            if (Items.length > 0) {
+                Items.forEach( item => {
+                    checkIsDue(item);
+                });
+                checkIsDue(Items[0]);
+            } else {
+                response.send({
+                    success: true,
+                    message: `Successfully retreived todo.`,
+                    Items
+                });
+            }
+            
         }
 
     });
@@ -131,6 +139,47 @@ exports.deleteItem = (request, response) => {
     })
 
 };
+
+
+exports.deleteAll = (request, response) => {
+
+    var scanParams = {
+        TableName: process.env.DB_TABLE
+    }
+
+    dynamodb.scan(scanParams, (error, data) => {
+        if (error) {
+            response.send({
+                success: false,
+                message: `Error: Server error. Message: ${error.message}`
+            });
+        } else {
+            
+            data.Items.forEach((item, idx) => {
+
+                let params = {
+                    TableName: process.env.DB_TABLE,
+                    Key: {
+                        id: item.id
+                    },
+                    ReturnValues: 'NONE',
+                    ReturnConsumedCapacity: 'NONE',
+                    ReturnItemCollectionMetrics: 'NONE'
+                };
+
+                dynamodb.delete(params, (err, data) => {
+                    if (err) {
+                        console.error(error);
+                    } else {
+                        console.log(data);
+                    }
+                })
+            });
+        }
+    })
+
+};
+
 
 exports.updateItem = (request, response) => {
 
@@ -237,6 +286,20 @@ exports.getAllDue = (request, response) => {
 const checkIsDue = (todo) => {
 
     // TODO: implement checkIsDue logic
+
+    if (todo.dueDate) {
+
+        const dueDate = moment(todo.dueDate);
+        const isDue   = dueDate.isBefore();
+
+        if (!todo.dueDate && isDue) {
+            setIsDue(todo.id, true);
+        }
+        if (todo.dueDate && !isDue) {
+            setIsDue(todo.id, false);
+        }
+
+    }
 
 }
 
