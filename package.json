@@ -4,7 +4,9 @@
   "description": "A simple todo app making use of AWS services.",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha --timeout 10000",
+    "remove-table": "node -e \"require('./app/table').deleteTable()\"",
+    "create-table": "node -e \"require('./app/table').createTable()\""
   },
   "repository": {
     "type": "git",
@@ -23,5 +25,10 @@
     "express": "^4.16.3",
     "moment": "^2.22.2",
     "uuid": "^3.3.2"
+  },
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "chai-http": "^4.2.0",
+    "mocha": "^5.2.0"
   }
 }
