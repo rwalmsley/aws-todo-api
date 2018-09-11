@@ -13,6 +13,8 @@ app.use(function(request, response) {
     response.status(404).send({ url: request.originalUrl + ' not found' })
 });
 
-app.listen(process.env.DB_PORT, () => {
+let server = app.listen(process.env.DB_PORT, () => {
     console.log(`Server is listening on port ${process.env.DB_PORT}`)
 });
+
+module.exports = server;
