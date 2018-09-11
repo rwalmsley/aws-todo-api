@@ -27,6 +27,7 @@ describe('Todos', () => {
     });
 
     after((done) => {
+        // Close our server
         app.close();
         done();
     })
@@ -47,13 +48,30 @@ describe('Todos', () => {
                 if (err) {
                     return done(err);
                 }
-                console.log('ID::', id)
                 Todos.getItem({ params: { id }}).then((todos) => {
                     expect(todos.length).toBe(1);
                     expect(todos[0].id).toBe(id);
                     done();
                 }).catch((e) => done(e));
             });
+        });
+
+        it('should not create todo with invalid data', (done) => {
+
+            request(app)
+            .post('/todos')
+            .send({})
+            .expect(400)
+            .end((err, res) => {
+                if (err) {
+                    return done(err);
+                }
+
+                Todos.listAll().then(todos => {
+                    expect(todos.length).toBe(0);
+                    done()
+                }).catch(err => done(err));
+            })
         });
     });
 
@@ -63,12 +81,42 @@ describe('Todos', () => {
             request(app)
             .get('/todos')
             .expect(200)
-            .end((err, res) => {
-                // res.body.todos.should.be.a('array');
-                // res.body.todos.length.should.be.eql(0);
-                done();
-            });
+            .expect(res => {
+                expect(res.body.todos.length).toBe(0);
+            })
+            .end(done);
         });
     });
+
+
+    describe('/GET todos/:id', () => {
+        it('should return todo doc', (done) => {
+            let id;
+
+            request(app)
+            .post('/todos')
+            .send(todos[0])
+            .expect(200)
+            .expect(res => {
+                expect(typeof res.body.id).toBe('string');
+                id = res.body.id;
+            })
+            .end((err, res) => {
+                if (err) {
+                    return done(err);
+                }
+
+                request(app)
+                .get(`/todos/${id}`)
+                .expect(200)
+                .expect(res => {
+                    expect(res.body.todos[0].title).toBe(todos[0].title)
+                })
+                .end(done);
+            })
+        });
+    })
+
+
 });
 

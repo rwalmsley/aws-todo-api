@@ -74,8 +74,7 @@ module.exports.listAll = (request, response) => {
 
     return scanPromise.then(result => {
 
-        checkTodoListForDue(result.Items, response);
-        return result;
+        return checkTodoListForDue(result.Items, response).then(todos => todos);
 
     }).catch(error => {
         sendError(500, error, response);
