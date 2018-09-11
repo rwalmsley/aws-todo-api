@@ -9,11 +9,13 @@ module.exports = (app) => {
         .get(todoController.listAll)
         .post(todoController.addItem);
 
-    app.route('/todos/:todoId')
+    app.route('/todos/due')
+        .get(todoController.getAllDue);
+
+    app.route('/todos/:id')
         .get(todoController.getItem)
         .put(todoController.updateItem)
         .delete(todoController.deleteItem);
 
-    app.route('/todos/due')
-        .get(todoController.getAllDue);
+
 }
