@@ -4,10 +4,19 @@ const moment = require('moment');
 
 const API_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
 
+/**
+ * Add a todo item.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.addItem = (request, response) => {
     const timestamp = new Date().getTime();
 
     const data = request.body;
+
+    if (!validateParams(data, 'POST', response)) {
+        return;
+    }
 
     let isDue = false, momentDate;
     if (data.dueDate) {
@@ -41,19 +50,20 @@ module.exports.addItem = (request, response) => {
                 id
             });
         }
+        return result;
         
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`,
-                error
-            });
-        }
+        sendError(500, error, response);
+        return error;
     });
 
 };
 
+/**
+ * List all todos.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.listAll = (request, response) => {
 
     const params = {
@@ -65,18 +75,20 @@ module.exports.listAll = (request, response) => {
     return scanPromise.then(result => {
 
         checkTodoListForDue(result.Items, response);
+        return result;
 
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
+        return error;
     });
 }
 
 
+/**
+ * Get a todo.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.getItem = (request, response) => {
 
     const id = request.params.id;
@@ -96,12 +108,7 @@ module.exports.getItem = (request, response) => {
         return checkTodoListForDue(Items, response).then( todos => todos);
 
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
         return error;
     });
 };
@@ -136,12 +143,7 @@ const checkTodoListForDue = (items, response) => {
             return todos;
 
         }).catch(error => {
-            if (response) {
-                response.send({
-                    success: false,
-                    message: `Error: Server error. Message: ${error.message}`
-                });
-            }
+            sendError(500, error, response);
             return error;
         });
 
@@ -150,7 +152,7 @@ const checkTodoListForDue = (items, response) => {
             response.send({
                 success: true,
                 message: `Successfully retrieved todo.`,
-                total: todos.length,
+                total: items.length,
                 todos: items
             });
         }
@@ -159,7 +161,11 @@ const checkTodoListForDue = (items, response) => {
 
 }
 
-
+/**
+ * Delete a todo item.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.deleteItem = (request, response) => {
 
     const id = request.params.id;
@@ -180,18 +186,19 @@ module.exports.deleteItem = (request, response) => {
                 message: `Successfully removed todo.`,
             });
         }
+        return result;
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
+        return error;
     });
 
 };
 
-
+/**
+ * Loop through every todo item and remove them.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.deleteAll = (request, response) => {
 
     var scanParams = {
@@ -224,22 +231,27 @@ module.exports.deleteAll = (request, response) => {
         });
         
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
+        return error;
     });
 
 };
 
 
+/**
+ * Update a todo item.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.updateItem = (request, response) => {
 
     const timestamp = new Date().getTime();
     const data = request.body;
     const id = request.params.id;
+
+    if (!validateParams(data, 'PUT', response)) {
+        return;
+    }
 
     let updateExpression = 'SET updatedAt = :updatedAt'
     let expressionAttributeNames = {};
@@ -285,28 +297,29 @@ module.exports.updateItem = (request, response) => {
 
     const updatePromise = dynamodb.update(params).promise();
 
-    return updatePromise.then(Item => {
+    return updatePromise.then(todo => {
 
-        console.log(Item)
+        console.log(todo)
         if (response) {
             response.send({
                 success: true,
                 message: `Successfully updated todo.`,
-                Item
+                todo
             });
         }
+        return todo;
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
+        return error;
     });
 
 };
 
-
+/**
+ * Return only due todo items.
+ * @param {Object} request 
+ * @param {Object} response 
+ */
 module.exports.getAllDue = (request, response) => {
 
     const params = {
@@ -331,12 +344,8 @@ module.exports.getAllDue = (request, response) => {
         });
         
     }).catch(error => {
-        if (response) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        }
+        sendError(500, error, response);
+        return error
     });
 
 }
@@ -395,4 +404,62 @@ const setIsDue = (id, isDue) => {
         return error;
     });
 
+}
+
+/**
+ * Validation for adding or updating todo items. RequestType is required 
+ * to determine type of validation.
+ * @param {Object} params A todo data object
+ * @param {String} requestType The request type. (eg POST, GET)
+ * @param {Object} response The response object
+ */
+const validateParams = (params = {}, requestType = 'POST', response) => {
+
+    // Validate title
+    if (requestType === 'POST' && !params.hasOwnProperty('title')) {
+        sendError(400, { message: 'Title is required' }, response);        
+        return false;
+    } else {
+        if (params.hasOwnProperty('title') && (typeof params.title !== 'string' || params.title.length === 0)) {
+            sendError(400, { message: 'Proper title format required'}, response);
+            return false;
+        }
+    }
+
+    // Validate dueDate
+    if (params.hasOwnProperty('dueDate')) {
+        if (!moment(params.dueDate, "YYYY-MM-DD").isValid()) {
+            sendError(400, { message: 'Please provide "dueDate" as "YYYY-MM-DD"'}, response);
+            return false;
+        }
+    }
+
+    // Validate isDone
+    if (params.hasOwnProperty('isDone')) {
+        if (typeof params.isDone !== 'boolean' ) {
+            sendError(400, { message: 'Please provide "isDone" as a boolean'}, response);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Standardized error response.
+ * @param {Int} status The status code
+ * @param {Object} error The error object
+ * @param {Object} response The response object
+ */
+const sendError = (status = 500, error, response) => {
+
+    if (!response) {
+        return;
+    }
+
+    response.status(status).send({
+        success: false,
+        message: `Error: ${error.message}`,
+        error
+    })
 }
