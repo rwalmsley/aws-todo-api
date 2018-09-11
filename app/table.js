@@ -11,7 +11,7 @@ AWS.config.update({
 
 var dynamodb = new AWS.DynamoDB();
 
-module.exports.createTable = (callback) => {
+module.exports.createTable = () => {
     let params = {
         TableName: process.env.DB_TABLE,
         KeySchema: [
@@ -26,14 +26,12 @@ module.exports.createTable = (callback) => {
         }
     };
     
-    dynamodb.createTable(params, (err, data) => {
-        if (err) {
-            console.error('Unable to create table. Error JSON: ', JSON.stringify(err, null, 2));
-            if (callback) callback({ success: false });
-        } else {
-            console.log('Created table. Table description JSON: ', JSON.stringify(data, null, 2));
-            if (callback) callback({ success: true });
-        }
+    const createTablePromise = dynamodb.createTable(params).promise();
+
+    return createTablePromise.then(data => {
+        console.log('Created table. Table description JSON: ', data.TableDescription.TableName);
+    }).catch(error => {
+        console.error('Unable to create table. Error JSON: ', JSON.stringify(err, null, 2));
     });
 }
 
@@ -42,13 +40,11 @@ module.exports.deleteTable = (callback) => {
         TableName: process.env.DB_TABLE,
     };
     
-    dynamodb.deleteTable(params, (err, data) => {
-        if (err) {
-            console.error('Unable to create table. Error JSON: ', JSON.stringify(err, null, 2));
-            if (callback) callback({ success: false });
-        } else {
-            console.log('Created table. Table description JSON: ', JSON.stringify(data, null, 2));
-            if (callback) callback({ success: true });
-        }
+    const deleteTablePromise = dynamodb.deleteTable(params).promise();
+
+    return deleteTablePromise.then(data => {
+        console.log('Deleted table. Table description JSON: ', data.TableDescription.TableName);
+    }).catch(error => {
+        console.error('Unable to delete table. Error JSON: ', JSON.stringify(err, null, 2));
     });
 }
