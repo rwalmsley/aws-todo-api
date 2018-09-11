@@ -2,14 +2,18 @@ const dynamodb = require('../dynamodb');
 const uuid = require('uuid');
 const moment = require('moment');
 
-exports.addItem = (request, response) => {
+const API_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
+
+module.exports.addItem = (request, response) => {
     const timestamp = new Date().getTime();
 
     const data = request.body;
 
-    let isDue = false;
+    let isDue = false, momentDate;
     if (data.dueDate) {
-        isDue = moment(data.dueDate).isBefore();
+        momentDate = moment.utc(data.dueDate);
+        let localMoment = moment(data.dueDate);
+        isDue = localMoment.isBefore();
     }
     const id = uuid.v1()
 
@@ -20,60 +24,62 @@ exports.addItem = (request, response) => {
             title: data.title,
             description: data.description,
             isDue,
-            dueDate: data.dueDate || null,
+            dueDate: momentDate ? momentDate.format(API_DATETIME_FORMAT) : null,
             createdAt: timestamp,
             updatedAt: timestamp,
             isDone: false,
         }
     };
 
-    dynamodb.put(params, (error, result) => {
+    const putPromise = dynamodb.put(params).promise();
 
-        if (error) {
-
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
+    return putPromise.then(result => {
+        if (response) {
             response.send({
                 success: true,
                 message: 'Todo created successfully',
                 id
             });
         }
+        
+    }).catch(error => {
+        if (response) {
+            response.send({
+                success: false,
+                message: `Error: Server error. Message: ${error.message}`,
+                error
+            });
+        }
     });
 
 };
 
-exports.listAll = (request, response) => {
+module.exports.listAll = (request, response) => {
 
     const params = {
         TableName: process.env.DB_TABLE
     };
 
-    dynamodb.scan(params, (error, result) => {
+    const scanPromise = dynamodb.scan(params).promise();
 
-        if (error) {
+    return scanPromise.then(result => {
+
+        checkTodoListForDue(result.Items, response);
+
+    }).catch(error => {
+        if (response) {
             response.send({
                 success: false,
                 message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
-            response.send({
-                success: true,
-                message: `Successfully retreived todo list.`,
-                total: result.Count,
-                todos: result.Items
             });
         }
     });
 }
 
 
-exports.getItem = (request, response) => {
+module.exports.getItem = (request, response) => {
 
-    const id = request.params.todoId;
+    const id = request.params.id;
 
     const params = {
         TableName: process.env.DB_TABLE,
@@ -83,38 +89,80 @@ exports.getItem = (request, response) => {
         }
     };
 
-    dynamodb.query(params, (error, result) => {
+    const queryPromise = dynamodb.query(params).promise();
+    return queryPromise.then(result => {
 
-        if (error) {
+        const { Items } = result;
+        return checkTodoListForDue(Items, response).then( todos => todos);
+
+    }).catch(error => {
+        if (response) {
             response.send({
                 success: false,
                 message: `Error: Server error. Message: ${error.message}`
             });
-        } else {
-            const { Items } = result;
-
-            if (Items.length > 0) {
-                Items.forEach( item => {
-                    checkIsDue(item);
-                });
-                checkIsDue(Items[0]);
-            } else {
-                response.send({
-                    success: true,
-                    message: `Successfully retreived todo.`,
-                    Items
-                });
-            }
-            
         }
-
+        return error;
     });
 };
 
 
-exports.deleteItem = (request, response) => {
+/**
+ * Loop through each Todo to check if it is due.
+ * @param {Array} items Array of Todo items
+ * @param {Object} response The server response object
+ */
+const checkTodoListForDue = (items, response) => {
 
-    const id = request.params.todoId;
+    if (items.length > 0) {
+
+        let itemPromises = [];
+
+        items.forEach( item => {
+            itemPromises.push(checkIsDue(item));
+        });
+
+        return Promise.all(itemPromises).then((todos) => {
+
+            if (response) {
+                response.send({
+                    success: true,
+                    message: `Successfully retrieved todo.`,
+                    total: todos.length,
+                    todos
+                });
+            }
+
+            return todos;
+
+        }).catch(error => {
+            if (response) {
+                response.send({
+                    success: false,
+                    message: `Error: Server error. Message: ${error.message}`
+                });
+            }
+            return error;
+        });
+
+    } else {
+        if (response) {
+            response.send({
+                success: true,
+                message: `Successfully retrieved todo.`,
+                total: todos.length,
+                todos: items
+            });
+        }
+        return Promise.resolve(items);
+    }
+
+}
+
+
+module.exports.deleteItem = (request, response) => {
+
+    const id = request.params.id;
 
     const params = {
         TableName: process.env.DB_TABLE,
@@ -123,69 +171,75 @@ exports.deleteItem = (request, response) => {
         }
     };
 
-    dynamodb.delete(params, (error) => {
+    const deletePromise = dynamodb.delete(params).promise();
 
-        if (error) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
+    return deletePromise.then(result => {
+        if (response) {
             response.send({
                 success: true,
                 message: `Successfully removed todo.`,
             });
         }
-    })
+    }).catch(error => {
+        if (response) {
+            response.send({
+                success: false,
+                message: `Error: Server error. Message: ${error.message}`
+            });
+        }
+    });
 
 };
 
 
-exports.deleteAll = (request, response) => {
+module.exports.deleteAll = (request, response) => {
 
     var scanParams = {
         TableName: process.env.DB_TABLE
     }
 
-    dynamodb.scan(scanParams, (error, data) => {
-        if (error) {
+    const scanPromise = dynamodb.scan(scanParams).promise();
+
+    return scanPromise.then(data => {
+            
+        data.Items.forEach((item, idx) => {
+
+            let params = {
+                TableName: process.env.DB_TABLE,
+                Key: {
+                    id: item.id
+                },
+                ReturnValues: 'NONE',
+                ReturnConsumedCapacity: 'NONE',
+                ReturnItemCollectionMetrics: 'NONE'
+            };
+
+            dynamodb.delete(params, (err, data) => {
+                if (err) {
+                    console.error(err);
+                } else {
+                    console.log(data);
+                }
+            })
+        });
+        
+    }).catch(error => {
+        if (response) {
             response.send({
                 success: false,
                 message: `Error: Server error. Message: ${error.message}`
             });
-        } else {
-            
-            data.Items.forEach((item, idx) => {
-
-                let params = {
-                    TableName: process.env.DB_TABLE,
-                    Key: {
-                        id: item.id
-                    },
-                    ReturnValues: 'NONE',
-                    ReturnConsumedCapacity: 'NONE',
-                    ReturnItemCollectionMetrics: 'NONE'
-                };
-
-                dynamodb.delete(params, (err, data) => {
-                    if (err) {
-                        console.error(error);
-                    } else {
-                        console.log(data);
-                    }
-                })
-            });
         }
-    })
+    });
 
 };
 
 
-exports.updateItem = (request, response) => {
+module.exports.updateItem = (request, response) => {
 
     const timestamp = new Date().getTime();
     const data = request.body;
-    const id = request.params.todoId;
+    const id = request.params.id;
 
     let updateExpression = 'SET updatedAt = :updatedAt'
     let expressionAttributeNames = {};
@@ -229,18 +283,23 @@ exports.updateItem = (request, response) => {
         params.ExpressionAttributeNames = expressionAttributeNames
     }
 
-    dynamodb.update(params, (error, result) => {
+    const updatePromise = dynamodb.update(params).promise();
 
-        if (error) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
-            console.log(result)
+    return updatePromise.then(Item => {
+
+        console.log(Item)
+        if (response) {
             response.send({
                 success: true,
                 message: `Successfully updated todo.`,
+                Item
+            });
+        }
+    }).catch(error => {
+        if (response) {
+            response.send({
+                success: false,
+                message: `Error: Server error. Message: ${error.message}`
             });
         }
     });
@@ -248,29 +307,34 @@ exports.updateItem = (request, response) => {
 };
 
 
-exports.getAllDue = (request, response) => {
+module.exports.getAllDue = (request, response) => {
 
     const params = {
-        TableName: process.env.DB_TABLE,
-        KeyConditionExpression: 'isDue = :i',
-        ExpressionAttributeValues: {
-            ':i': true
-        }
-    };
+        TableName: process.env.DB_TABLE
+    }
 
-    dynamodb.query(params, (error, result) => {
+    const queryPromise = dynamodb.scan(params).promise();
 
-        if (error) {
+    return queryPromise.then(result => {
+
+        return checkTodoListForDue(result.Items, null).then( todos => {
+
+            let dueItems = todos.filter( todo => todo.isDue);
+            if (response) {
+                response.send({
+                    success: true,
+                    message: `Successfully retrieved due todo list.`,
+                    total: dueItems.length,
+                    todos: dueItems
+                });
+            }
+        });
+        
+    }).catch(error => {
+        if (response) {
             response.send({
                 success: false,
                 message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
-            response.send({
-                success: true,
-                message: `Successfully retreived todo list.`,
-                total: result.Count,
-                todos: result.Items
             });
         }
     });
@@ -285,22 +349,21 @@ exports.getAllDue = (request, response) => {
  */
 const checkIsDue = (todo) => {
 
-    // TODO: implement checkIsDue logic
-
     if (todo.dueDate) {
 
-        const dueDate = moment(todo.dueDate);
-        const isDue   = dueDate.isBefore();
+        let localMoment = moment(todo.dueDate).local();
+        let isDue = localMoment.isBefore();
 
-        if (!todo.dueDate && isDue) {
-            setIsDue(todo.id, true);
-        }
-        if (todo.dueDate && !isDue) {
-            setIsDue(todo.id, false);
-        }
+        if (todo.isDue !== isDue) {
 
+            return setIsDue(todo.id, isDue).then(item => {
+                return item;
+            }).catch(error => {
+                return error;
+            });
+        }
     }
-
+    return Promise.resolve(todo);
 }
 
 
@@ -324,21 +387,12 @@ const setIsDue = (id, isDue) => {
         ReturnValues: 'ALL_NEW',
     };
 
+    const updatePromise = dynamodb.update(params).promise();
 
-    dynamodb.update(params, (error, result) => {
-
-        if (error) {
-            response.send({
-                success: false,
-                message: `Error: Server error. Message: ${error.message}`
-            });
-        } else {
-            console.log(result)
-            response.send({
-                success: true,
-                message: `Successfully updated todo.`,
-            });
-        }
+    return updatePromise.then(result => {
+        return result.Attributes;
+    }).catch(error => {
+        return error;
     });
 
 }
